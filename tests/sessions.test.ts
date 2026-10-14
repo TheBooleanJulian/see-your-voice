@@ -10,7 +10,7 @@ import { DEFAULT_FILLERS } from '../src/speech/fillers';
 import { MemoryBackend } from '../src/storage/backend';
 import { DEFAULT_PREFS, loadPrefs, sanitizePrefs, savePrefs } from '../src/storage/prefs';
 import { normalizeMeta, SessionRepo } from '../src/storage/repo';
-import { buildKeyboard, cMidi } from '../src/visualization/keyboard';
+import { cMidi } from '../src/visualization/keyboard';
 
 const DT = 0.025;
 
@@ -294,32 +294,11 @@ describe('passages and cadence matching', () => {
   });
 });
 
-describe('keyboard geometry', () => {
-  it('has the right number of keys for the range and distinct octaves', () => {
-    const g = buildKeyboard(2, 3, 660); // C2..C5
-    expect(g.low).toBe(36);
-    expect(g.high).toBe(72);
-    expect(g.keys).toHaveLength(37);
-    expect(g.whiteCount).toBe(22);
-    expect(g.xForMidi(cMidi(4))).not.toBe(g.xForMidi(cMidi(5)));
-    expect(g.xForMidi(60)).toBeLessThan(g.xForMidi(72));
-  });
-
-  it('interpolates fractional pitch and clamps outside the range', () => {
-    const g = buildKeyboard(3, 2, 500);
-    const x0 = g.xForMidi(60);
-    const x1 = g.xForMidi(61);
-    expect(g.xForMidi(60.5)).toBeCloseTo((x0 + x1) / 2, 6);
-    expect(g.xForMidi(10)).toBe(g.xForMidi(g.low));
-    expect(g.xForMidi(200)).toBe(g.xForMidi(g.high));
-  });
-
-  it('keeps every key inside the keyboard width', () => {
-    const g = buildKeyboard(2, 4, 800);
-    for (const k of g.keys) {
-      expect(k.x).toBeGreaterThanOrEqual(-0.0001);
-      expect(k.x + k.w).toBeLessThanOrEqual(800.0001);
-    }
+describe('keyboard axis helpers', () => {
+  it('maps octave numbers to the MIDI number of that C', () => {
+    expect(cMidi(4)).toBe(60);
+    expect(cMidi(2)).toBe(36);
+    expect(cMidi(5) - cMidi(4)).toBe(12);
   });
 });
 

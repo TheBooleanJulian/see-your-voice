@@ -1,10 +1,9 @@
 import { useEffect, useRef } from 'react';
 import type { MicEngine } from '../audio/micEngine';
 import { useCanvasSize, useReducedMotion } from '../hooks/hooks';
-import { freqToMidiFloat } from '../pitch/notes';
 import type { Prefs } from '../storage/prefs';
-import { drawKeyboard, drawPitchGraph } from '../visualization/draw';
-import { buildKeyboard, cMidi } from '../visualization/keyboard';
+import { drawPitchGraph } from '../visualization/draw';
+import { cMidi } from '../visualization/keyboard';
 import { readTheme } from '../visualization/theme';
 
 interface Props {
@@ -12,30 +11,25 @@ interface Props {
   prefs: Prefs;
   /** When set, the graph window ends at this session time instead of "now". */
   frozenAt: number | null;
-  hasSession: boolean;
 }
 
-/** Keyboard + pitch graph + level meter, all drawn from one requestAnimationFrame loop. */
-export function LiveViz({ engine, prefs, frozenAt, hasSession }: Props) {
-  const kbRef = useRef<HTMLCanvasElement>(null);
+/** Pitch graph with a piano-roll keyboard axis + level meter, all drawn from one requestAnimationFrame loop. */
+export function LiveViz({ engine, prefs, frozenAt }: Props) {
   const graphRef = useRef<HTMLCanvasElement>(null);
   const meterRef = useRef<HTMLDivElement>(null);
-  const kbSize = useCanvasSize(kbRef);
   const graphSize = useCanvasSize(graphRef);
   const reduced = useReducedMotion();
   const hover = useRef<number | null>(null);
 
   // Latest props for the animation loop without restarting it on every change.
-  const live = useRef({ prefs, frozenAt, hasSession, reduced });
-  live.current = { prefs, frozenAt, hasSession, reduced };
+  const live = useRef({ prefs, frozenAt, reduced });
+  live.current = { prefs, frozenAt, reduced };
 
   useEffect(() => {
-    const kb = kbRef.current;
     const gr = graphRef.current;
-    if (!kb || !gr) return;
-    const kctx = kb.getContext('2d');
+    if (!gr) return;
     const gctx = gr.getContext('2d');
-    if (!kctx || !gctx) return;
+    if (!gctx) return;
     const theme = readTheme();
     let raf = 0;
     let lastDraw = 0;
@@ -43,7 +37,7 @@ export function LiveViz({ engine, prefs, frozenAt, hasSession }: Props) {
 
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
-      const { prefs: p, frozenAt: fz, hasSession: has, reduced: rm } = live.current;
+      const { prefs: p, frozenAt: fz, reduced: rm } = live.current;
       if (rm && now - lastDraw < 100) return; // ~10 fps under reduced motion
       lastDraw = now;
 
@@ -51,31 +45,6 @@ export function LiveViz({ engine, prefs, frozenAt, hasSession }: Props) {
       const latest = engine.latest;
       const lowMidi = cMidi(p.lowOctave);
       const highMidi = lowMidi + p.octaves * 12;
-
-      // Keyboard
-      const ks = kbSize.current;
-      if (ks.w > 0) {
-        kctx.setTransform(ks.dpr, 0, 0, ks.dpr, 0, 0);
-        const geom = buildKeyboard(p.lowOctave, p.octaves, ks.w);
-        const tNow = engine.elapsedSec();
-        const trail: { midi: number; age: number; uncertain: boolean }[] = [];
-        for (let i = log.length - 1; i >= 0 && trail.length < 40; i -= 2) {
-          const age = tNow - log.t[i];
-          if (age > 1.2) break;
-          const m = log.f0[i] > 0 ? freqToMidiFloat(log.f0[i], p.a4) : null;
-          if (m !== null) trail.push({ midi: m, age, uncertain: (log.flags[i] & 2) !== 0 });
-        }
-        const fresh = engine.status === 'running' && latest.f0 > 0;
-        drawKeyboard(kctx, ks.w, ks.h, {
-          geom,
-          theme,
-          midi: fresh ? freqToMidiFloat(latest.f0, p.a4) : null,
-          uncertain: latest.uncertain,
-          trail,
-          reducedMotion: rm,
-          hasSession: has,
-        });
-      }
 
       // Pitch graph
       const gs = graphSize.current;
@@ -104,7 +73,7 @@ export function LiveViz({ engine, prefs, frozenAt, hasSession }: Props) {
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [engine, kbSize, graphSize]);
+  }, [engine, graphSize]);
 
   const onMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     hover.current = e.clientX - e.currentTarget.getBoundingClientRect().left;
@@ -116,12 +85,6 @@ export function LiveViz({ engine, prefs, frozenAt, hasSession }: Props) {
   return (
     <div className="viz">
       <canvas
-        ref={kbRef}
-        className="kb-canvas"
-        role="img"
-        aria-label="Piano keyboard. The key for your current pitch is highlighted; the current note is also shown in text below."
-      />
-      <canvas
         ref={graphRef}
         className="graph-canvas"
         onPointerMove={onMove}
@@ -129,7 +92,7 @@ export function LiveViz({ engine, prefs, frozenAt, hasSession }: Props) {
         onPointerLeave={onLeave}
         onPointerCancel={onLeave}
         role="img"
-        aria-label="Scrolling pitch graph: pitch over time. Solid line is a confident reading, dashed is uncertain. The strip below marks voiced speech, speech without steady pitch, and silence."
+        aria-label="Scrolling pitch graph with a piano keyboard down its left edge: pitch over time, with the key for your current pitch highlighted. Solid line is a confident reading, dashed is uncertain. The strip below marks voiced speech, speech without steady pitch, and silence."
       />
       <div className="meter" aria-hidden="true">
         <span className="meter-label">Level (relative)</span>
