@@ -33,6 +33,8 @@ npm run preview    # serve dist/ on :4173
 | `src/practice/` | Passages, suggested-pause matching, rule-based suggestions. |
 | `src/visualization/`, `src/components/`, `src/views/` | Canvas renderers and React UI. |
 
+The keyboard axis shows the configured range (default C2-C5) and grows in whole octaves, only while the voice is outside it in the visible window.
+
 Decisions: analysis runs on the main thread on a timer (YIN on a ~12 kHz decimated 2048-sample buffer is a few hundred µs, preallocated, so no worker was needed); canvas is drawn from `requestAnimationFrame`, decoupled from analysis. Only runtime deps are `react` and `react-dom`.
 
 ## Privacy
