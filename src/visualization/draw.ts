@@ -4,24 +4,8 @@
 
 import type { Contour } from '../audio/frameLog';
 import { FLAG_ACTIVE, FLAG_UNCERTAIN, type FrameLog } from '../audio/frameLog';
-import { formatCents, freqToMidiFloat, freqToNote, midiToFreq, midiToName } from '../pitch/notes';
-import type { KeyboardGeom } from './keyboard';
+import { formatCents, freqToMidiFloat, freqToNote, isBlackKey, midiToFreq, midiToName } from '../pitch/notes';
 import type { Theme } from './theme';
-
-export const RIBBON_H = 34;
-
-export interface KeyboardState {
-  geom: KeyboardGeom;
-  theme: Theme;
-  /** Current pitch (fractional MIDI) or null when unvoiced/silent. */
-  midi: number | null;
-  uncertain: boolean;
-  /** Recent voiced points for the movement trail. */
-  trail: { midi: number; age: number; uncertain: boolean }[];
-  reducedMotion: boolean;
-  /** True once a session exists (distinguishes "ready" from "unvoiced"). */
-  hasSession: boolean;
-}
 
 function hatch(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string): void {
   ctx.save();
@@ -39,119 +23,6 @@ function hatch(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
   ctx.restore();
 }
 
-export function drawKeyboard(ctx: CanvasRenderingContext2D, w: number, h: number, s: KeyboardState): void {
-  const { geom, theme } = s;
-  ctx.clearRect(0, 0, w, h);
-  const keyTop = RIBBON_H;
-  const keyH = h - keyTop;
-  const blackH = keyH * 0.6;
-  const active = s.midi === null ? null : Math.round(s.midi);
-
-  // --- ribbon: pitch position + trail above the keys ---
-  ctx.fillStyle = theme.surface;
-  ctx.fillRect(0, 0, w, RIBBON_H - 4);
-  ctx.strokeStyle = theme.grid;
-  ctx.lineWidth = 1;
-  ctx.fillStyle = theme.dim;
-  ctx.font = `10px ${theme.mono}`;
-  ctx.textBaseline = 'top';
-  for (let m = geom.low; m <= geom.high; m += 12) {
-    const x = geom.xForMidi(m);
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, RIBBON_H - 4);
-    ctx.stroke();
-    ctx.textAlign = m === geom.low ? 'left' : m === geom.high ? 'right' : 'center';
-    ctx.fillText(midiToName(m).label, x + (m === geom.low ? 3 : m === geom.high ? -3 : 0), 2);
-  }
-  if (!s.reducedMotion) {
-    for (const p of s.trail) {
-      ctx.globalAlpha = Math.max(0, 1 - p.age / 1.2) * 0.8;
-      ctx.fillStyle = theme.pitch;
-      ctx.beginPath();
-      ctx.arc(geom.xForMidi(p.midi), RIBBON_H - 12, p.uncertain ? 2 : 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  // --- white keys ---
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  for (const k of geom.keys) {
-    if (k.black) continue;
-    const on = active === k.midi;
-    ctx.fillStyle = theme.keyWhite;
-    ctx.fillRect(k.x + 0.5, keyTop, k.w - 1, keyH);
-    if (on) {
-      ctx.fillStyle = s.uncertain ? 'rgba(0,212,200,0.25)' : theme.live;
-      ctx.fillRect(k.x + 0.5, keyTop, k.w - 1, keyH);
-      if (s.uncertain) {
-        hatch(ctx, k.x + 0.5, keyTop, k.w - 1, keyH, theme.live);
-        ctx.strokeStyle = theme.live;
-        ctx.setLineDash([4, 3]);
-        ctx.lineWidth = 2;
-        ctx.strokeRect(k.x + 1.5, keyTop + 1, k.w - 3, keyH - 2);
-        ctx.setLineDash([]);
-      }
-    }
-    // Label: octave-numbered C on every octave, letter names when there is room.
-    const { name, label } = midiToName(k.midi);
-    if (name === 'C' || k.w >= 22) {
-      ctx.fillStyle = on && !s.uncertain ? theme.void : '#3A4352';
-      ctx.font = `${name === 'C' ? 600 : 400} ${Math.min(12, Math.max(9, k.w * 0.45))}px ${theme.mono}`;
-      ctx.fillText(name === 'C' ? label : name, k.x + k.w / 2, h - 7);
-    }
-  }
-  // --- black keys ---
-  for (const k of geom.keys) {
-    if (!k.black) continue;
-    const on = active === k.midi;
-    ctx.fillStyle = theme.keyBlack;
-    ctx.fillRect(k.x, keyTop, k.w, blackH);
-    if (on) {
-      ctx.fillStyle = s.uncertain ? 'rgba(0,212,200,0.35)' : theme.live;
-      ctx.fillRect(k.x, keyTop, k.w, blackH);
-      if (s.uncertain) {
-        hatch(ctx, k.x, keyTop, k.w, blackH, theme.live);
-        ctx.strokeStyle = theme.live;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([3, 3]);
-        ctx.strokeRect(k.x + 1, keyTop + 1, k.w - 2, blackH - 2);
-        ctx.setLineDash([]);
-      }
-    }
-  }
-
-  // --- pitch marker in the ribbon + cents indicator on the key ---
-  if (s.midi !== null) {
-    const clamped = s.midi < geom.low || s.midi > geom.high;
-    const x = geom.xForMidi(s.midi);
-    ctx.fillStyle = theme.pitch;
-    ctx.strokeStyle = theme.pitch;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(x, 4);
-    ctx.lineTo(x, RIBBON_H - 4);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(x, RIBBON_H - 12, 5, 0, Math.PI * 2);
-    s.uncertain ? ctx.stroke() : ctx.fill();
-    if (clamped) {
-      ctx.font = `11px ${theme.mono}`;
-      ctx.fillStyle = theme.gold;
-      ctx.textAlign = s.midi < geom.low ? 'left' : 'right';
-      const msg = s.midi < geom.low ? `◀ below ${midiToName(geom.low).label}` : `above ${midiToName(geom.high).label} ▶`;
-      ctx.fillText(msg, s.midi < geom.low ? 28 : w - 28, 14);
-    }
-  } else {
-    ctx.font = `11px ${theme.mono}`;
-    ctx.fillStyle = theme.dim;
-    ctx.textAlign = 'center';
-    ctx.fillText(s.hasSession ? 'no steady pitch' : 'waiting for a session', w / 2, 14);
-  }
-}
-
 export interface GraphState {
   theme: Theme;
   log: FrameLog;
@@ -167,7 +38,9 @@ export interface GraphState {
   reducedMotion: boolean;
 }
 
-const GL = 46; // left gutter for axis labels
+/** Left gutter holding the vertical piano keys. */
+export const PLOT_LEFT = 54;
+const GL = PLOT_LEFT;
 const GR = 10;
 const GT = 8;
 const STRIP_H = 14;
@@ -186,54 +59,103 @@ export function plotBox(w: number, h: number): PlotBox {
   return { left: GL, top: GT, plotW: w - GL - GR, plotH, stripTop: GT + plotH + 6 };
 }
 
-function yMapper(s: Pick<GraphState, 'scale' | 'lowMidi' | 'highMidi' | 'a4'>, box: PlotBox) {
+type Range = Pick<GraphState, 'scale' | 'lowMidi' | 'highMidi' | 'a4'>;
+
+// The y range extends half a semitone past each end so the edge keys are whole.
+function yMapper(s: Range, box: PlotBox) {
   if (s.scale === 'semitone') {
+    const lo = s.lowMidi - 0.5;
+    const span = s.highMidi - s.lowMidi + 1;
     return (hz: number) => {
-      const m = freqToMidiFloat(hz, s.a4) ?? s.lowMidi;
-      return box.top + (1 - (m - s.lowMidi) / (s.highMidi - s.lowMidi)) * box.plotH;
+      const m = freqToMidiFloat(hz, s.a4) ?? lo;
+      return box.top + (1 - (m - lo) / span) * box.plotH;
     };
   }
-  const fLo = midiToFreq(s.lowMidi, s.a4);
-  const fHi = midiToFreq(s.highMidi, s.a4);
+  const fLo = midiToFreq(s.lowMidi - 0.5, s.a4);
+  const fHi = midiToFreq(s.highMidi + 0.5, s.a4);
   return (hz: number) => box.top + (1 - (hz - fLo) / (fHi - fLo)) * box.plotH;
 }
 
-function drawYAxis(ctx: CanvasRenderingContext2D, s: Pick<GraphState, 'scale' | 'lowMidi' | 'highMidi' | 'a4' | 'theme'>, box: PlotBox, w: number): void {
+/** Piano-roll axis: one row per semitone, drawn as keys in the left gutter and faint rows in the plot. */
+function drawPianoAxis(
+  ctx: CanvasRenderingContext2D,
+  s: Range & { theme: Theme },
+  box: PlotBox,
+  w: number,
+  active: { midi: number; uncertain: boolean } | null,
+): void {
   const y = yMapper(s, box);
-  ctx.font = `10px ${s.theme.mono}`;
-  ctx.textAlign = 'right';
+  const rowTop = (m: number) => Math.max(box.top, y(midiToFreq(m + 0.5, s.a4)));
+  const rowBot = (m: number) => Math.min(box.top + box.plotH, y(midiToFreq(m - 0.5, s.a4)));
+  const keyW = box.left - 4;
+  const labelAll = rowBot(s.lowMidi) - rowTop(s.lowMidi) >= 11;
+
   ctx.textBaseline = 'middle';
-  ctx.lineWidth = 1;
-  if (s.scale === 'semitone') {
-    for (let m = s.lowMidi; m <= s.highMidi; m++) {
-      const isC = m % 12 === 0;
-      const isG = m % 12 === 7 || m % 12 === 4;
-      if (!isC && !isG) continue;
-      const yy = y(midiToFreq(m, s.a4));
-      ctx.strokeStyle = isC ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)';
-      ctx.beginPath();
-      ctx.moveTo(box.left, yy);
-      ctx.lineTo(w - GR, yy);
-      ctx.stroke();
-      if (isC || (s.highMidi - s.lowMidi) <= 24) {
-        ctx.fillStyle = isC ? s.theme.text : s.theme.dim;
-        ctx.fillText(midiToName(m).label, box.left - 6, yy);
+  for (let m = s.lowMidi; m <= s.highMidi; m++) {
+    const top = rowTop(m);
+    const h = rowBot(m) - top;
+    if (h <= 0) continue;
+    const black = isBlackKey(m);
+    if (black) {
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.fillRect(box.left, top, box.plotW, h);
+    }
+    ctx.fillStyle = s.theme.keyWhite;
+    ctx.fillRect(0, top, keyW, Math.max(1, h - (black ? 0 : 0.5)));
+    if (black) {
+      ctx.fillStyle = s.theme.keyBlack;
+      ctx.fillRect(0, top, keyW * 0.62, Math.max(1, h - 0.5));
+    }
+    const on = active !== null && active.midi === m;
+    if (on) {
+      const hh = Math.max(2, h);
+      ctx.fillStyle = active.uncertain ? 'rgba(0,212,200,0.3)' : s.theme.live;
+      ctx.fillRect(0, top, keyW, hh);
+      if (active.uncertain) {
+        hatch(ctx, 0, top, keyW, hh, s.theme.live);
+        ctx.strokeStyle = s.theme.live;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 2]);
+        ctx.strokeRect(0.75, top + 0.75, keyW - 1.5, hh - 1.5);
+        ctx.setLineDash([]);
       }
     }
-  } else {
-    const fLo = midiToFreq(s.lowMidi, s.a4);
-    const fHi = midiToFreq(s.highMidi, s.a4);
-    const step = fHi - fLo > 600 ? 100 : 50;
-    for (let f = Math.ceil(fLo / step) * step; f <= fHi; f += step) {
-      const yy = y(f);
-      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-      ctx.beginPath();
-      ctx.moveTo(box.left, yy);
-      ctx.lineTo(w - GR, yy);
-      ctx.stroke();
-      ctx.fillStyle = s.theme.dim;
-      ctx.fillText(`${f} Hz`, box.left - 6, yy);
+    const { name, label } = midiToName(m);
+    if (!black && (name === 'C' || labelAll)) {
+      ctx.font = `${name === 'C' ? 600 : 400} 9px ${s.theme.mono}`;
+      ctx.fillStyle = on && !active.uncertain ? s.theme.void : '#3A4352';
+      ctx.textAlign = 'right';
+      ctx.fillText(name === 'C' ? label : name, keyW - 3, top + h / 2);
     }
+    if (name === 'C') {
+      ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(box.left, top + h);
+      ctx.lineTo(w - GR, top + h);
+      ctx.stroke();
+    }
+  }
+}
+
+function drawHzAxis(ctx: CanvasRenderingContext2D, s: Range & { theme: Theme }, box: PlotBox, w: number): void {
+  const y = yMapper(s, box);
+  const fLo = midiToFreq(s.lowMidi - 0.5, s.a4);
+  const fHi = midiToFreq(s.highMidi + 0.5, s.a4);
+  const step = fHi - fLo > 600 ? 100 : 50;
+  ctx.font = `10px ${s.theme.mono}`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 1;
+  for (let f = Math.ceil(fLo / step) * step; f <= fHi; f += step) {
+    const yy = y(f);
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.beginPath();
+    ctx.moveTo(box.left, yy);
+    ctx.lineTo(w - GR, yy);
+    ctx.stroke();
+    ctx.fillStyle = s.theme.dim;
+    ctx.fillText(`${f} Hz`, box.left + 4, yy - 7);
   }
 }
 
@@ -243,7 +165,19 @@ export function drawPitchGraph(ctx: CanvasRenderingContext2D, w: number, h: numb
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = theme.surface;
   ctx.fillRect(box.left, box.top, box.plotW, box.plotH);
-  drawYAxis(ctx, s, box, w);
+  const last = log.length - 1;
+  const fresh = last >= 0 && log.f0[last] > 0 && s.tEnd - log.t[last] < 0.25;
+  const liveMidi = fresh ? freqToMidiFloat(log.f0[last], s.a4) : null;
+  if (s.scale === 'hz') drawHzAxis(ctx, s, box, w);
+  drawPianoAxis(ctx, s, box, w, liveMidi === null ? null : { midi: Math.round(liveMidi), uncertain: (log.flags[last] & FLAG_UNCERTAIN) !== 0 });
+  if (liveMidi !== null && (liveMidi > s.highMidi + 0.5 || liveMidi < s.lowMidi - 0.5)) {
+    const above = liveMidi > s.highMidi + 0.5;
+    ctx.font = `11px ${theme.mono}`;
+    ctx.fillStyle = theme.gold;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(above ? `▲ above ${midiToName(s.highMidi).label}` : `▼ below ${midiToName(s.lowMidi).label}`, w - GR - 4, above ? box.top + 10 : box.top + box.plotH - 10);
+  }
 
   const t0 = s.tEnd - s.windowSec;
   const xOf = (t: number) => box.left + ((t - t0) / s.windowSec) * box.plotW;
@@ -456,7 +390,8 @@ export function drawContourChart(ctx: CanvasRenderingContext2D, w: number, h: nu
       return box.top + (1 - (st + span / 2) / span) * box.plotH;
     };
   } else {
-    drawYAxis(ctx, s, box, w);
+    if (s.scale === 'hz') drawHzAxis(ctx, s, box, w);
+    drawPianoAxis(ctx, s, box, w, null);
     yOf = yMapper(s, box);
   }
 
