@@ -189,7 +189,7 @@ export function LiveStudio({ mode, label, passage, autoStopSec, intent, onFinish
       ) : null}
 
       <Readouts engine={ctrl.engine} status={snap.status} a4={prefs.a4} limitSec={autoStopSec} />
-      <LiveViz engine={ctrl.engine} prefs={prefs} frozenAt={frozenAt} hasSession={snap.status !== 'idle'} />
+      <LiveViz engine={ctrl.engine} prefs={prefs} frozenAt={frozenAt} />
 
       <div className="controls" role="group" aria-label="Recording controls">
         {!active ? (

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useCanvasSize } from '../hooks/hooks';
 import type { Prefs } from '../storage/prefs';
-import { drawContourChart, type ContourSeries } from '../visualization/draw';
+import { drawContourChart, PLOT_LEFT, type ContourSeries } from '../visualization/draw';
 import { cMidi } from '../visualization/keyboard';
 import { readTheme } from '../visualization/theme';
 
@@ -54,8 +54,8 @@ export function ContourChart({ series, durationSec, mode, prefs, playhead = null
   const onClick = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!onSeek) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const plotLeft = 46;
-    const plotW = rect.width - 46 - 10;
+    const plotLeft = PLOT_LEFT;
+    const plotW = rect.width - PLOT_LEFT - 10;
     const frac = (e.clientX - rect.left - plotLeft) / plotW;
     if (frac >= 0 && frac <= 1) onSeek(frac * durationSec);
   };

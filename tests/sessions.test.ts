@@ -10,7 +10,8 @@ import { DEFAULT_FILLERS } from '../src/speech/fillers';
 import { MemoryBackend } from '../src/storage/backend';
 import { DEFAULT_PREFS, loadPrefs, sanitizePrefs, savePrefs } from '../src/storage/prefs';
 import { normalizeMeta, SessionRepo } from '../src/storage/repo';
-import { buildKeyboard, cMidi } from '../src/visualization/keyboard';
+import { cMidi } from '../src/visualization/keyboard';
+import { expandRange } from '../src/visualization/range';
 
 const DT = 0.025;
 
@@ -294,32 +295,38 @@ describe('passages and cadence matching', () => {
   });
 });
 
-describe('keyboard geometry', () => {
-  it('has the right number of keys for the range and distinct octaves', () => {
-    const g = buildKeyboard(2, 3, 660); // C2..C5
-    expect(g.low).toBe(36);
-    expect(g.high).toBe(72);
-    expect(g.keys).toHaveLength(37);
-    expect(g.whiteCount).toBe(22);
-    expect(g.xForMidi(cMidi(4))).not.toBe(g.xForMidi(cMidi(5)));
-    expect(g.xForMidi(60)).toBeLessThan(g.xForMidi(72));
+describe('keyboard axis helpers', () => {
+  it('maps octave numbers to the MIDI number of that C', () => {
+    expect(cMidi(4)).toBe(60);
+    expect(cMidi(2)).toBe(36);
+    expect(cMidi(5) - cMidi(4)).toBe(12);
   });
+});
 
-  it('interpolates fractional pitch and clamps outside the range', () => {
-    const g = buildKeyboard(3, 2, 500);
-    const x0 = g.xForMidi(60);
-    const x1 = g.xForMidi(61);
-    expect(g.xForMidi(60.5)).toBeCloseTo((x0 + x1) / 2, 6);
-    expect(g.xForMidi(10)).toBe(g.xForMidi(g.low));
-    expect(g.xForMidi(200)).toBe(g.xForMidi(g.high));
+describe('auto-expanding keyboard range', () => {
+  const base = { lowMidi: 36, highMidi: 72 }; // C2..C5
+  it('keeps the base range when the voice stays inside it', () => {
+    expect(expandRange(base, 440, [110, 220, 0, 400])).toEqual(base);
+    expect(expandRange(base, 440, [])).toEqual(base);
+    expect(expandRange(base, 440, [0, NaN, -5])).toEqual(base);
   });
-
-  it('keeps every key inside the keyboard width', () => {
-    const g = buildKeyboard(2, 4, 800);
-    for (const k of g.keys) {
-      expect(k.x).toBeGreaterThanOrEqual(-0.0001);
-      expect(k.x + k.w).toBeLessThanOrEqual(800.0001);
-    }
+  it('grows upward in whole octaves, C-aligned', () => {
+    expect(expandRange(base, 440, [600]).highMidi).toBe(84); // D5 -> C6
+    expect(expandRange(base, 440, [1000]).highMidi).toBe(84); // B5 -> C6
+    expect(expandRange(base, 440, [1100]).highMidi).toBe(96); // C#6 -> C7
+    expect(expandRange(base, 440, [600]).lowMidi).toBe(36);
+  });
+  it('grows downward', () => {
+    expect(expandRange(base, 440, [61.7]).lowMidi).toBe(24); // B1 -> C1
+    expect(expandRange(base, 440, [61.7]).highMidi).toBe(72);
+  });
+  it('does not expand for a note exactly on the edge and honours the window slice', () => {
+    expect(expandRange(base, 440, [523.25]).highMidi).toBe(72); // C5
+    expect(expandRange(base, 440, [1000, 200], 1, 2).highMidi).toBe(72); // glitch outside slice ignored
+  });
+  it('clamps absurd values', () => {
+    expect(expandRange(base, 440, [1e6]).highMidi).toBe(108);
+    expect(expandRange(base, 440, [0.001]).lowMidi).toBe(12);
   });
 });
 
