@@ -24,7 +24,7 @@ export interface PitchReading {
 
 export const DEFAULT_TRACKER_CONFIG: TrackerConfig = {
   minHz: 60,
-  maxHz: 500,
+  maxHz: 800,
   yinThreshold: 0.25,
   silenceRms: 0.01,
 };

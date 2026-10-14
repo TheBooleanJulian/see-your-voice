@@ -11,6 +11,7 @@ import { MemoryBackend } from '../src/storage/backend';
 import { DEFAULT_PREFS, loadPrefs, sanitizePrefs, savePrefs } from '../src/storage/prefs';
 import { normalizeMeta, SessionRepo } from '../src/storage/repo';
 import { cMidi } from '../src/visualization/keyboard';
+import { expandRange } from '../src/visualization/range';
 
 const DT = 0.025;
 
@@ -299,6 +300,33 @@ describe('keyboard axis helpers', () => {
     expect(cMidi(4)).toBe(60);
     expect(cMidi(2)).toBe(36);
     expect(cMidi(5) - cMidi(4)).toBe(12);
+  });
+});
+
+describe('auto-expanding keyboard range', () => {
+  const base = { lowMidi: 36, highMidi: 72 }; // C2..C5
+  it('keeps the base range when the voice stays inside it', () => {
+    expect(expandRange(base, 440, [110, 220, 0, 400])).toEqual(base);
+    expect(expandRange(base, 440, [])).toEqual(base);
+    expect(expandRange(base, 440, [0, NaN, -5])).toEqual(base);
+  });
+  it('grows upward in whole octaves, C-aligned', () => {
+    expect(expandRange(base, 440, [600]).highMidi).toBe(84); // D5 -> C6
+    expect(expandRange(base, 440, [1000]).highMidi).toBe(84); // B5 -> C6
+    expect(expandRange(base, 440, [1100]).highMidi).toBe(96); // C#6 -> C7
+    expect(expandRange(base, 440, [600]).lowMidi).toBe(36);
+  });
+  it('grows downward', () => {
+    expect(expandRange(base, 440, [61.7]).lowMidi).toBe(24); // B1 -> C1
+    expect(expandRange(base, 440, [61.7]).highMidi).toBe(72);
+  });
+  it('does not expand for a note exactly on the edge and honours the window slice', () => {
+    expect(expandRange(base, 440, [523.25]).highMidi).toBe(72); // C5
+    expect(expandRange(base, 440, [1000, 200], 1, 2).highMidi).toBe(72); // glitch outside slice ignored
+  });
+  it('clamps absurd values', () => {
+    expect(expandRange(base, 440, [1e6]).highMidi).toBe(108);
+    expect(expandRange(base, 440, [0.001]).lowMidi).toBe(12);
   });
 });
 

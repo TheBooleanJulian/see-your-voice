@@ -5,6 +5,7 @@
 import type { Contour } from '../audio/frameLog';
 import { FLAG_ACTIVE, FLAG_UNCERTAIN, type FrameLog } from '../audio/frameLog';
 import { formatCents, freqToMidiFloat, freqToNote, isBlackKey, midiToFreq, midiToName } from '../pitch/notes';
+import { expandRange } from './range';
 import type { Theme } from './theme';
 
 function hatch(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string): void {
@@ -159,8 +160,12 @@ function drawHzAxis(ctx: CanvasRenderingContext2D, s: Range & { theme: Theme }, 
   }
 }
 
-export function drawPitchGraph(ctx: CanvasRenderingContext2D, w: number, h: number, s: GraphState): void {
-  const { theme, log } = s;
+export function drawPitchGraph(ctx: CanvasRenderingContext2D, w: number, h: number, input: GraphState): void {
+  const { theme, log } = input;
+  // Grow the keyboard (whole octaves) if the voice leaves the configured range inside the visible window.
+  let first = log.length;
+  while (first > 0 && log.t[first - 1] >= input.tEnd - input.windowSec - 0.05) first--;
+  const s: GraphState = { ...input, ...expandRange(input, input.a4, log.f0, first, log.length) };
   const box = plotBox(w, h);
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = theme.surface;
@@ -354,8 +359,14 @@ export interface ContourChartState {
   pauses?: { startSec: number; durSec: number }[];
 }
 
-export function drawContourChart(ctx: CanvasRenderingContext2D, w: number, h: number, s: ContourChartState): void {
-  const { theme } = s;
+export function drawContourChart(ctx: CanvasRenderingContext2D, w: number, h: number, input: ContourChartState): void {
+  const { theme } = input;
+  let s = input;
+  if (input.mode === 'absolute') {
+    let range = { lowMidi: input.lowMidi, highMidi: input.highMidi };
+    for (const ser of input.series) range = expandRange(range, input.a4, ser.contour.f0);
+    s = { ...input, ...range };
+  }
   const box = plotBox(w, h);
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = theme.surface;
